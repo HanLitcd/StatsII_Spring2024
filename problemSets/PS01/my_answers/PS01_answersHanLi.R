@@ -39,37 +39,35 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 set.seed(123)
 # Generate 1000 Cauchy random variables
-data <- rcauchy(1000, location = 0, scale = 1)
+data1 <- rcauchy(1000, location = 0, scale = 1)
 # create empirical distribution of observed data
 
-ECDF <- ecdf(data)
-empiricalCDF <- ECDF(data)
-# generate test statistic
-D <- max(abs(empiricalCDF - pnorm(data)))
+
 # Function to approximate the KS p-value using the provided series formula
-ks_p_value <- function(Dx) {
-  # Ensure D is positive to avoid division by zero
-  if (Dx <= 0) return(1)
-  
+ks_p_value <- function(data) {
+  ECDF <- ecdf(data)
+  empiricalCDF <- ECDF(data)
+  # get D
+  D <- max(abs(empiricalCDF - pnorm(data)))
   # Constants for the calculation
   pi_sq <- pi^2
-  upper_limit <- 1000 
-  
+  upper_limit <- length(data)
   # Calculate the series sum
   series_sum <- sum(sapply(1:upper_limit, function(k) {
-    exp(-(2*k - 1)^2 * pi_sq / (8 * Dx^2))
+    exp(-(2*k - 1)^2 * pi_sq / (8 * D^2))
   }))
   
   # Calculate the p-value using the series sum
-  p_value <- sqrt(2*pi) / Dx * series_sum
+  p_value <- sqrt(2*pi) / D * series_sum
   
   # Ensure the p-value is within [0,1]
   p_value <- min(max(p_value, 0), 1)
-  
+  cat('D is',D,' with p_value of ', p_value)
   return(p_value)
 }
-p_value <- ks_p_value(D)
-print(p_value)
+ks_p_value(data1)
+#check
+ks.test(data1,'pnorm')
 #####################
 # Problem 2
 #####################
@@ -81,17 +79,20 @@ data$y <- 0 + 2.75*data$x + rnorm(200, 0, 1.5)
 lm_model <- lm(y ~ x, data = data)
 
 # Define the log-likelihood function for the OLS model
-logLikFun <- function(beta, data) {
-  y <- data$y
-  x <- data$x
-  sigma <- 1.5 # Assuming known standard deviation
-  -sum(dnorm(y, mean = beta[1] + beta[2] * x, sd = sigma, log = TRUE))
+logLikFun <- function(theta,y,X) {
+  n <-nrow(X)
+  k <-ncol(X)
+  beta <- theta[1:k]
+  sigma <- theta[k+1]
+
+  -sum(dnorm(y, mean =X %*% beta , sd = sigma, log = TRUE))
 }
 
 # Optimize the log-likelihood function using BFGS method
-library(stats)
-start_values <- c(0, 1) # Starting values for the coefficients
-bfgs_model <- optim(start_values, logLikFun, data = data, method = "BFGS")
+
+ # Starting values for the coefficients
+start_values <- c(1,1,1)
+bfgs_model <- optim(fn=logLikFun, par=start_values, X=cbind(1,data$x),y=data$y, method = "BFGS",hessian = T)
 
 # Output the coefficients from both models
 list(lm_model = coef(lm_model), bfgs_model = bfgs_model$par)
