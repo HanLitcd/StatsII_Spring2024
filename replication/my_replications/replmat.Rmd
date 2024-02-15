@@ -1,0 +1,498 @@
+---
+title: "Textual Taylor Rule"
+author: "Nicole Rae Baerg and Will Lowe"
+date: "28/05/20187"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = "")
+```
+## R Setup
+
+```{r, message=FALSE}
+library(lme4) 
+library(splines) 
+library(ggplot2)
+library(dplyr) 
+library(readr)
+library(stargazer)
+library(readxl)
+library(lubridate)
+library(broom)
+library(tidyr)
+library(cowplot)
+library(xtable)
+library(quanteda) #tested on 1.2 or 1.3, 0.9 is not the same output
+```
+
+Please note that quanteda 1.3 was used and is necessary to replicate the results in A.1 in the Appendix Material. For your conevience, a copy of the package is contained in this replication repositroy 
+
+
+## This is Figure 1 
+
+```{r}
+read_excel("FOMC_Dissents_Data.xlsx", skip = 3, col_names = TRUE) %>% 
+  filter(Year >= 2005, Year <= 2007) %>% 
+  group_by(`FOMC Meeting`) %>% 
+  mutate(diss = `Number Presidents Dissenting` + `Number Governors Dissenting`) %>% 
+  summarise(total = `FOMC Votes`, Assents = total - diss, Dissents = diss) %>% 
+  gather(Direction, Votes, -c(`FOMC Meeting`, total)) %>% 
+  ggplot(aes(x = `FOMC Meeting`, y = Votes, colour = Direction, fill = Direction)) + 
+  geom_bar(stat = "identity") + 
+  scale_colour_manual(values = c("grey", "black")) +
+  scale_fill_manual(values = c("grey", "black")) +
+  scale_y_continuous("Votes Cast", breaks = 0:12, labels = as.character(0:12)) + 
+  theme_minimal()
+
+# ggsave("dissentsplot.pdf", width = 7, height = 5)
+```
+
+
+## FOMC members preferences 
+
+This section pulls in the data and makes the dependent variable for modeling. The first function is the ideal point plotter (dotchart + segments but in ggplot)
+
+```{r, results = "hide"}
+ipplot <- function(ideal, speaker, lower, upper){
+  row <- 1:length(ideal)
+  p <- ggplot(df, aes(ideal, speaker)) +
+    geom_point(size = 2) +
+    geom_segment(aes(x=lower, xend=upper, y=row, yend=row)) +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank())
+  p
+}
+```
+
+This lists the names of FOMC members per year that we care about. 
+
+```{r, echo = TRUE}
+nicole_peeps2007 <- c("GREENSPAN", "GEITHNER", "BIES", "EVANS", 
+                      "FISHER", "FERGUSON", "GUYNN", "KOHN", 
+                      "LOCKHART", "LACKER", "PIANALTO", "YELLEN", 
+                      "MINEHAN", "MOSKOW", "POOLE", "HOENIG", 
+                      "FISHER", "STERN", "SANTOMERO")
+nicole_peeps2006 <- c("BERNANKE", "GEITHNER", "BIES", "HOENIG", 
+                      "KOHN", "KROSZNER", "MINEHAN", "MISHKIN", 
+                      "MOSKOW", "POOLE", "WARSH", "FISHER", "OLSON",
+                      "PIANALTO", "PLOSSER", "STERN", "STONE", 
+                      "LACKER", "YELLEN")
+nicole_peeps2005 <- c("GREENSPAN", "GEITHNER", "BERNANKE", "BIES", 
+                      "FERGUSON", "FISHER", "GRAMLICH", "KOHN", 
+                      "MOSKOW", "OLSON", "SANTOMERO", "STERN", 
+                      "GUYNN", "LACKER", "PIANALTO", "YELLEN", 
+                      "HOENIG", "MINEHAN", "POOLE", "HOLCOMB", 
+                      "CUMMING")
+nicole_peeps <- unique(c(nicole_peeps2007, nicole_peeps2006, 
+                         nicole_peeps2005))
+```
+
+This is the meeting data and the topic output 
+
+```{r}
+# meeting data and speaker metadata
+ddm <- read.csv("name_role_date.csv")
+# topic model output
+c_file <- 'topical-ngrams-document-topics.csv'
+dd1 <- read.csv(c_file, sep = '\t')[,-1]
+names(dd1) <- 0:24 # these are the topics, from 1 to 25
+```
+
+Now to pick out the topics we are interested in (we do this by hand i.e. determine which topics):
+
+ - 7+17+21 (employment / output)
+ - 8 (core inflation) (9, 14, 15: energy + house prices)
+
+Let's have them as constants:
+```{r}
+# full sample left and right categories
+R_cats_full <- '8'
+L_cats_full <- c('7', '17', '21')
+
+## and a function to create an appropriate DV with such things
+mk_dv <- function(mat, right, left, na.omit = FALSE){
+  res <- data.frame(R = rowSums(mat[, right, drop = FALSE]), 
+                    L = rowSums(mat[, left, drop = FALSE]))
+  if (na.omit)
+    return(na.omit(res))
+  res
+}
+
+# switch dd to the numerical column labels
+# names(dd) <- c('7', '17', '21', '8')
+dd <- dd1[,c('7','17','21','8','9','14','15')]
+```
+
+
+```{r}
+good <- rowSums(dd) > 0
+meta <- filter(ddm, good, name %in% nicole_peeps) 
+counts <- filter(dd, good, ddm$name %in% nicole_peeps) 
+```
+
+## Let's get to modeling
+
+In these regressions the dependent variable is two counts for each speaker-meeting
+
+> [successes (right, inflation talk), failures (left, unemployment-output talk)]
+
+```{r}
+# collapse over three topic counts (see Lowe et al. 2011) and regress
+depvar <- mk_dv(counts, R_cats_full, L_cats_full)
+meta <- meta %>% 
+  mutate(month = month(date, label = TRUE),
+         year = year(date))
+```
+
+## Linear mixed effects 
+
+Models for both the Bank Presidents and also the Board Members 
+```{r, results="hide"}
+mod.mix <- glmer(as.matrix(depvar) ~ (1 | name) + (1 | month), 
+                 data = meta, family = binomial)
+```
+
+
+```{r, results="hide"}
+rf <- ranef(mod.mix, condVar = TRUE)$name
+rf_postvar <- as.vector(attr(rf, "postVar"))
+df <- data.frame(ideal = rf[[1]]) %>%
+  mutate(se = sqrt(rf_postvar),
+         upper = ideal + 2 * se,
+         lower = ideal - 2 * se,
+         speaker = factor(rownames(rf), 
+                          levels = rownames(rf)[order(ideal)])) %>%
+  arrange(ideal)
+```
+
+Estimated Fixed Ideal Points from Full Transcripts with meeting random effects.
+
+## This is Figure 2
+
+```{r, echo = TRUE}
+ipplot(df$ideal, df$speaker, df$lower, df$upper) + 
+     labs(x = "Ideal point", y = "Speaker")
+```
+
+## Doing things with the estimates 
+
+## 1. Compare with other measures 
+
+```{r}
+merged_votes_text <- read.csv("merged_votes_text.csv", 
+                              row.names = 1, stringsAsFactors = FALSE)
+```
+Expert Order of the FT Ranking is: 
+
+```{r}
+ft_coding <- data.frame(Name = c("Kohn", "Yellen", "Bernanke", "Pianalto",
+                                "Fisher", "Lacker", "Plosser", "Hoenig"),
+                                 coding = c("Super Dove", "Dove", "Center", "Center", 
+                                "Hawk", "Super Hawk", "Super Hawk", "Super Hawk"), 
+             stringsAsFactors = FALSE)
+```
+
+These are the votes by Eijffinger, Sylvester CW, Ronald Mahieu, and Louis Raes. "Hawks and Doves at the FOMC." (2015), kindly provided by the authors. 
+
+```{r}
+votes.implied <- merged_votes_text[,6:9]
+names(votes.implied) <- c("Names", "Low.Votes", "Estimate", "High.Votes")
+```
+
+This is the regional information:
+
+The regional estimates are from here Bennani, Hamza, Etienne Farvaque, and Piotr Leszek Stanek. "FOMC members’ incentives to disagree: regional motives and background influences." (2015).
+
+```{r}
+votes.regional <- read.csv("policy_rate_validation.csv", 
+                           stringsAsFactors = FALSE, row.names = 1) %>%
+  mutate(NAME = toupper(name))
+```
+
+```{r}
+est <- read.csv("idealcompare.csv", 
+                stringsAsFactors = FALSE, row.names = 1)
+
+df <- merged_votes_text %>% 
+  left_join(votes.regional, by = "NAME") %>%
+  left_join(est, by = "NAME") %>%
+  mutate(Pref.low = Pref.Policy - 1.96 * Pref.STD,
+         Pref.high = Pref.Policy + 1.96 * Pref.STD,
+         med.votes.sd = (med.votes - high.votes) / 1.96) %>%
+  arrange(ideal) %>%
+  mutate(ordered = 1:n())
+  
+
+small_df <- df %>% 
+  right_join(ft_coding, by = "Name") %>% 
+  select(NAME, ideal, upper, lower, coding) %>% 
+  mutate(coding = factor(coding, 
+                         levels = c("Super Dove", "Dove", "Center", "Hawk", "Super Hawk"))) %>%
+  arrange(coding, ideal) %>%
+  mutate(row = 1:n())
+```
+
+FT rankings and ideal points plot
+
+## This is Figure 3
+
+```{r}
+labs1 <- small_df$NAME
+labs2 <- small_df$coding
+
+ggplot(small_df, aes(x = ideal, y = row)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x = lower, xend = upper, y = row, yend = row)) +
+  scale_y_continuous(breaks = 1:length(labs1),
+                     labels = labs1,
+                     sec.axis = sec_axis(~.,
+                                         breaks = 1:length(labs2),
+                                         labels = labs2)) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.title = element_blank(),
+        legend.background = element_blank()) + 
+   labs(x = "Ideal point", y = "Speaker") 
+
+# ggsave("rank.pdf", width = 7, height = 5)
+```
+
+
+
+
+# Graph
+
+```{r}
+nms <- df$NAME
+g_text <- ggplot(df, aes(x=ideal, y=ordered)) + 
+  geom_point() + 
+  geom_errorbarh(aes(xmin = lower, xmax = upper, height = 0)) + 
+  theme_bw() + 
+  scale_y_continuous(breaks = 1:length(nms),
+                     labels = nms) + 
+  theme(axis.title = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_blank()) +
+        #axis.text.y = element_text(face = c(rep("plain",15),rep("bold",8)))) + 
+  ggtitle("Text Measure") 
+
+g_votes <- ggplot(df, aes(x=med.votes, y=ordered)) + 
+  geom_point() + geom_errorbarh(aes(xmin = low.votes, xmax = high.votes, height = 0)) + 
+  theme_bw() + 
+  theme(axis.text.y = element_blank(), axis.title = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_blank()) +  
+  ggtitle("Vote Measure") + 
+  xlim(-4,4)
+
+g_region <- ggplot(df, aes(x=Pref.Policy, y=ordered)) + 
+  geom_point() + geom_errorbarh(aes(xmin = Pref.Policy - 1.96*Pref.STD, 
+                                    xmax = Pref.Policy + 1.96*Pref.STD, height = 0 )) + 
+  theme_bw() + 
+  theme(axis.text.y = element_blank(), axis.title = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_blank()) + 
+  
+  ggtitle("Regional Vote Measure") + 
+  xlim(-10,10)
+```
+## This is Figure 4
+
+```{r, echo = FALSE}
+plot_grid(g_text, g_votes, g_region, 
+          align = "h", ncol = 3, 
+          rel_widths = c(0.38, 0.31, 0.31))
+```
+
+
+## Part 2. Adding in the economic covariates 
+
+```{r, results="hide"}
+regional <- read_excel("GreenbookForecastsRegional.xlsx") %>%
+  mutate(reg_un = `Regional Unemployment in Month of Meeting`,
+         nat_un = `Projected Unemployment Current`,
+         nat_un_q4 = `Projected Unemployment 4-Q AH`,
+         nat_inf = `Projected Inflation Current Q CPI`,
+         nat_inf2 =  `Projected Inflation Current Q PCE`,
+         nat_inf_q42 = `Projected Inflation 4-Q AH PCE`,
+         nat_inf_q4 = `Projected Inflation 4-Q AH CPI`,
+         diff = nat_un - reg_un,
+         logit = log(nat_un / reg_un),
+         npl = as.numeric(amount), #non-performing loans 
+         date = as.Date(Meeting)) %>%
+  filter(District != 0)
+``` 
+
+1. Model with national inflation + regional (district) unemployment + differennce between national and regional
+
+```{r, results="hide"}
+dat <- bind_cols(meta, depvar) %>%
+  mutate(date = dmy(date)) %>%
+  left_join(regional, ., by = c('name', 'date'))
+mod.econ <- glmer(cbind(R, L) ~ (1 | name) + nat_inf + nat_un + diff , data = dat, family = binomial)
+summary(mod.econ)
+```
+
+```{r, results="hide"}
+mod.econ2 <- glmer(cbind(R, L) ~ (1 | name) + log(npl) + nat_un + diff, data = dat, family = binomial)
+summary(mod.econ2)
+```
+
+```{r, results="hide"}
+mod.econ3 <- glmer(cbind(R, L) ~ (1 | name) + nat_inf_q4 + nat_un_q4 + diff,  data = dat, family = binomial)
+summary(mod.econ3)
+```
+
+The source of the CPI data is the Bureau of Labor Statistics http://www.usinflationcalculator.com/inflation/historical-inflation-rates/
+
+```{r}
+bls_cpi_inflation <- c(2.1,2.4,	2.8,	2.6,	2.7,	2.7,	2.4,	2.0,	2.8,	3.5,	4.3,	4.1, #2005
+          4.0,	3.6,	3.4,	3.5,	4.2,	4.3,	4.1,	3.8,	2.1,	1.3,	2.0,	2.5,	#2006
+          3.0,	3.0,	3.1,	3.5,	2.8,	2.5,	3.2,	3.6,	4.7,	4.3,	3.5,	3.4)	#2007
+```
+
+Okay, now putting these things into a table, we get the following:
+
+## This is Table 1 
+
+```{r}
+stargazer(mod.econ, mod.econ2, mod.econ3, type="text",
+          title="Regression Results for FOMC Bank Presidents", single.row=TRUE,
+          ci=TRUE, ci.level=0.9, omit.stat=c("f", "ser"))
+```
+
+## Part 3. Voting Analysis
+
+```{r}
+dat <- read_excel("ideal_date.xlsx") %>%
+  mutate(dissent = ifelse(Consent.Policy.Vote == 0, 1, 0),
+         vote = if_else(Vote == "y", 1, 0),
+         statement = if_else(Consent.Policy.Statement == 0, 1, 0))
+
+mod.1 <- glmer(dissent ~  est  + vote + (1 | date), data = dat, family = binomial)
+mod.2 <- glmer(statement ~ est +  vote +  (1 | date), data = dat, family = binomial)
+
+summary(mod.1)
+summary(mod.2)
+```
+
+## This is Table 2
+
+```{r}
+stargazer(mod.1, mod.2, type="text", title="Results", 
+          align=TRUE, dep.var.labels=c("Dissent Policy Rate","Dissent Statement"))
+```
+
+## Appendix Material starts here 
+
+## This replicates figure A.1
+
+```{r, echo=FALSE}
+validate <- read.csv2("AppendixValidation.csv", sep = ",")
+validate$Final[validate$Final == 99] <- NA
+table(validate$Final)
+validate <- subset(validate,Final %in% c("-1" , "0", "1")) 
+```
+
+```{r, echo = FALSE}
+ggplot(validate, aes(x=as.factor(Final)), fill = Final) + geom_bar(stat = "count") + 
+   xlab("Counts of Inflation Risk Language \n Dovish to Hawkish") +
+   ylab("Count") + 
+   scale_color_grey(start = 0, end = .9) +
+  theme_bw(base_size = 24) +
+   guides(colour = guide_legend("Member"), size = FALSE) +
+  annotate("text", x = 1, y = 80, label = c("Dovish"))+ 
+  annotate("text", x = 2, y = 70, label = c("Neutral")) + 
+  annotate("text", x = 3, y = 260, label = c("Hawkish"))
+  #ggsave("Sentiment2.pdf", plot = g, width=10, height=8)
+```
+
+## This replicates table A.1
+
+```{r}
+
+
+#dat <- read.csv2("Speaker_meeting_unique.csv", stringsAsFactors = FALSE)
+load("Appendix.rda")
+str(dat)
+inflation <- kwic(dat$Speech, "inflation")
+output <- kwic(dat$Speech, "output")
+unemployment <- kwic(dat$Speech, "unemployment")
+speech <- rbind(inflation, output, unemployment)
+
+#Top Topic Words 
+
+top_unigrams <- c("inflation",
+"percent",
+"year",
+"markets",
+"financial",
+"district",
+"president",
+"contacts",
+"capital",
+"terms",
+"people",
+"laughter",
+"monetary",
+"output",
+"unemployment",
+"mortgage",
+"ceo",
+"december",
+"nation",
+"statement",
+"world",
+"katrina",
+"largest",
+"july",
+"florida")	
+
+#for (word in top_unigrams) {
+#  print(dim(kwic(dat[[4]], word))[1])
+#}
+
+count <-NULL 
+
+for (word in top_unigrams) {
+  result <- dim(kwic(dat[[4]], word))[1]
+  count[word] <- result        # change to assignment
+}
+count
+
+
+counts<- as.data.frame(count)
+#xtable(counts)
+```
+
+## This replicates table A.2
+
+Recall that our model was:
+
+```{r}
+rf <- ranef(mod.mix, condVar = TRUE)$name
+rf_postvar <- as.vector(attr(rf, "postVar"))
+df <- data.frame(ideal = rf[[1]]) %>%
+  mutate(se = sqrt(rf_postvar),
+         upper = ideal + 2 * se,
+         lower = ideal - 2 * se,
+         speaker = factor(rownames(rf), 
+                          levels = rownames(rf)[order(ideal)])) %>%
+  arrange(ideal)
+
+keep <- c("speaker", "lower", "ideal", "upper")
+newdf <- df[keep]
+newdf
+#tableA2 <- xtable(newdf)
+#print(tableA2 , include.rownames = FALSE, digits = c(0,3,3,3)) # row names 
+
+
+```
