@@ -62,4 +62,4 @@ mexico_elections <- read.csv("https://raw.githubusercontent.com/ASDS-TCD/StatsII
 mpoisson <- glm(PAN.visits.06 ~ competitive.district + marginality.06 + PAN.governor.06, data = mexico_elections, family=poisson)
 summary(mpoisson)
 dispersiontest(mpoisson) #can't reject null as pvalue >0.05, no need for ZIP
-predict(mpoisson, newdata=data.frame(competitive.district=1, marginality.06 = 0, PAN.governor.06=1), type="response")
+pre <- predict(mpoisson, newdata=data.frame(competitive.district=1, marginality.06 = 0, PAN.governor.06=1), type="response")

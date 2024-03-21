@@ -142,13 +142,37 @@ To interpret the estimated coefficients, when REG change from 0 to 1 when holdin
 \begin{enumerate}
 	\item [(a)]
 	Run a Poisson regression because the outcome is a count variable. Is there evidence that PAN presidential candidates visit swing districts more? Provide a test statistic and p-value.
+	\lstinputlisting[language=R, firstline=60,lastline=64]{PS3_answersHanLi.R} 
+		\begin{lstlisting}		
+Call:
+glm(formula = PAN.visits.06 ~ competitive.district + marginality.06 +     PAN.governor.06, family = poisson, data = mexico_elections)
+Coefficients:                     Estimate Std. Error z value Pr(>|z|)    
+(Intercept)          -3.81023    0.22209 -17.156   <2e-16 ***
+competitive.district -0.08135    0.17069  -0.477   0.6336    
+marginality.06       -2.08014    0.11734 -17.728   <2e-16 ***
+PAN.governor.06      -0.31158    0.16673  -1.869   0.0617 .  
 
+(Dispersion parameter for poisson family taken to be 1)    
+Null deviance: 1473.87  on 2406  degrees of freedom
+Residual deviance:  991.25  on 2403  degrees of freedom
+AIC: 1299.2Number of Fisher Scoring iterations: 7
+	\end{lstlisting}	
+		\begin{lstlisting}		
+	Overdispersion 
+	testdata:  mpoisson
+	z = 1.0668, p-value = 0.143
+	alternative hypothesis: true dispersion is greater than 1
+	sample estimates:dispersion    2.09834 
+	\end{lstlisting}	
+From the  summary we can see the  competitive.district p value is 0.6336, which is >0.05 so we do not have enough evidence to reject the null hypothesis that there is no association between competitive.district and thenumber of visits from the winning PAN presidential candidate in 2006. We can also see from overdispersion test that the p-value is >0.05, so we have not found enough evidence to reject the null hypothesis that the true dispersion is smaller or equal to 1. Hence we can keep the poisson model without needing to run the zero inflated model.
 	\item [(b)]
-	Interpret the \texttt{marginality.06} and \texttt{PAN.governor.06} coefficients.
-	
+From the above summary, we can interpret that for marginality.06, holding PAN governor and competitive district constant, a one-unit increase in poverty leads to a change in the expected counts of visits by a multiplicative factor of about \(0.1249 ,exp(-2.08014)\), on average. For PAN governor, holding marginality.06 and competitive district constant, having a PAN governor changes the expected count of visits by a multiplicative factor of about \(0.7323 ,exp(-0.31158)\), on average.
+
 	\item [(c)]
 	Provide the estimated mean number of visits from the winning PAN presidential candidate for a hypothetical district that was competitive (\texttt{competitive.district}=1), had an average poverty level (\texttt{marginality.06} = 0), and a PAN governor (\texttt{PAN.governor.06}=1).
-	
+	\lstinputlisting[language=R, firstline=60,lastline=63]{PS3_answersHanLi.R} 
+The predicted value is 0.0149, so the expected counts of visits from the winning PAN candidate are 0.0149 for a competitive district with an average poverty level and a PAN governor.
+
 \end{enumerate}
 
 \end{document}
