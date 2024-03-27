@@ -3,8 +3,9 @@ title: "Replicating Baerg, N. and Lowe,W.:Textual Taylor Rule"
 author: "Han Li"
 date: "28/03/2024"
 output:
+  pdf_document:
+    latex_engine: lualatex
   html_document: default
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -33,17 +34,18 @@ During my literature review for QTA, I came across this paper"A Textual Taylor R
 ## Introduction and Background:
 
 The Federal Open Market Committee (FOMC) is crucial in U.S. monetary policy, impacting the economy and global finance. It aims to maximize employment, stabilize prices, and moderate long-term interest rates. Balancing these goals, especially when adjusting interest rates, requires careful policy crafting, as it affects inflation, growth, and employment. This complex decision-making backdrop highlights the importance of Taylor's Rule, a guideline that adjusts interest rates based on inflation and output variations. Taylor's Rule Formulation: 
-i=r+π+α(π0−π_target)+β(y0−y_current)
+i=r+pi+alpha(pi0−pi_target)+beta(y0−y_current)
+
 
 Where:
 i is the nominal interest rate recommended by the rule.
 r is the real neutral interest rate, assumed to be constant.
-π0 is the current rate of inflation.
-π_target is the target rate of inflation set by the central bank.
+pi is the current rate of inflation.
+pi_target is the target rate of inflation set by the central bank.
 y0 is the logarithm of the current real GDP.
 y_target is the logarithm of the potential or trend GDP.
 
-α and β are parameters that represent the response of the interest rate to deviations from the target inflation rate and output gap, respectively. Typically α = β =0.5 is considered a 'balanced' policy.
+α and β are parameters that represent the response of the interest rate to deviations from the target inflation rate and output gap, respectively. Typically alpha = beta =0.5 is considered a 'balanced' policy.
 
 This rule provides a simple yet powerful framework to guide central banks in adjusting interest rates to stabilize the economy by addressing inflation and output variations.
 The objective of the paper is to develop a method combining topic-based text analysis and scaling methods to estimate the preferences of US Federal Open Market Committee (FOMC) members without relying on voting data based on taylor's rule expressed in their texts.
@@ -92,7 +94,7 @@ read_excel("FOMC_Dissents_Data.xlsx", skip = 3, col_names = TRUE) %>%
   scale_y_continuous("Votes Cast", breaks = 0:12, labels = as.character(0:12)) + 
   theme_minimal()
 
-# ggsave("dissentsplot.pdf", width = 7, height = 5)
+ ggsave("dissentsplot.pdf", width = 7, height = 5)
 ```
 ```{r, results = "hide"}
 ipplot <- function(ideal, speaker, lower, upper){
